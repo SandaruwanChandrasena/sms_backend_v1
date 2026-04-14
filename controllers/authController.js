@@ -64,6 +64,7 @@ export const loginUser = async (req, res, next) => {
   }
 };
 
+
 // GET /api/auth/me
 export const getMe = async (req, res) => {
   // req.user is attached by authMiddleware
