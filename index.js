@@ -4,9 +4,10 @@ import cors from 'cors';
 import connectDB from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/authRoutes.js';
+import taskRoutes from './routes/taskRoutes.js';
 
 // Load .env variables before anything else
-dotenv.config();
+  dotenv.config();
 
 // Connect to MongoDB
 connectDB();
@@ -25,6 +26,7 @@ app.use('/uploads', express.static('uploads'));
 
 // add after your existing app.use() lines
 app.use('/api/auth', authRoutes);
+app.use('/api/tasks', taskRoutes);
 
 
 
