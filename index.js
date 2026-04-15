@@ -5,7 +5,7 @@ import connectDB from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/authRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
-
+import taskRoutes from './routes/taskRoutes.js';
 
 // Load .env variables before anything else
   dotenv.config();
@@ -28,7 +28,7 @@ app.use('/uploads', express.static('uploads'));
 // add after your existing app.use() lines
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
-
+app.use('/api/tasks',    taskRoutes);
 
 // Health check route — confirms API is running
 app.get('/', (req, res) => {

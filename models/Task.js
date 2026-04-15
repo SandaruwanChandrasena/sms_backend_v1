@@ -2,29 +2,25 @@ import mongoose from "mongoose";
 
 const taskSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true, trim: true },
-    description: { type: String, default: "" },
-    priority: {
-      type: String,
-      enum: ["low", "medium", "high"],
-      default: "medium",
-    },
-    status: {
-      type: String,
-      enum: ["pending", "in-progress", "completed", "overdue"],
-      default: "pending",
-    },
-    deadline: { type: Date, required: true },
-
-    // stores the supervisor's user id who created this task
-    createdBy: {
+    // which project this task belongs to
+    projectId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Project",
       required: true,
     },
 
-    // array of student user ids this task is assigned to
-    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    title: { type: String, required: true, trim: true },
+    description: { type: String, default: "" },
+    deadline: { type: Date, required: true },
+
+    // display order of task under the project (Task 1, Task 2...)
+    order: { type: Number, default: 1 },
+
+    // auto calculated: (100 - proposalPercentage) / taskCount
+    totalMarks: { type: Number, default: 0 },
+
+    // true = students can submit, false = link closed (auto after 30 mins past deadline)
+    submissionOpen: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

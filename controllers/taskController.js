@@ -1,47 +1,63 @@
-import Task from '../models/Task.js';
+import Task from "../models/Task.js";
+import Project from "../models/Project.js";
 
-// POST /api/tasks — supervisor creates and assigns a task
+// helper — recalculates and updates totalMarks for all tasks in a project
+const recalculateTaskMarks = async (projectId) => {
+  const project = await Project.findById(projectId);
+  const tasks = await Task.find({ projectId });
+
+  if (!project || tasks.length === 0) return;
+
+  // remaining marks after proposal percentage
+  const remaining = 100 - project.proposalPercentage;
+  const marksPerTask = parseFloat((remaining / tasks.length).toFixed(2));
+
+  // update every task with the new equal mark
+  await Task.updateMany({ projectId }, { totalMarks: marksPerTask });
+};
+
+// POST /api/tasks — supervisor adds a task to a project
 export const createTask = async (req, res, next) => {
   try {
-    const { title, description, priority, deadline, assignedTo } = req.body;
+    const { projectId, title, description, deadline, order } = req.body;
+
+    // verify the project exists and belongs to this supervisor
+    const project = await Project.findById(projectId);
+    if (!project) {
+      res.status(404);
+      return next(new Error("Project not found"));
+    }
+
+    if (project.supervisorId.toString() !== req.user._id.toString()) {
+      res.status(403);
+      return next(new Error("Not authorized to add tasks to this project"));
+    }
 
     const task = await Task.create({
+      projectId,
       title,
       description,
-      priority,
       deadline,
-      assignedTo,
-      createdBy: req.user._id, // logged-in supervisor's id
+      order: order ?? 1,
     });
 
-    res.status(201).json(task);
+    // recalculate marks for all tasks in this project
+    await recalculateTaskMarks(projectId);
+
+    // return updated task with new marks
+    const updatedTask = await Task.findById(task._id);
+    res.status(201).json(updatedTask);
   } catch (error) {
     next(error);
   }
 };
 
-// GET /api/tasks — returns tasks based on who is logged in
-export const getTasks = async (req, res, next) => {
+// GET /api/tasks/project/:projectId — get all tasks for a project
+export const getTasksByProject = async (req, res, next) => {
   try {
-    let tasks;
-
-    if (req.user.role === 'supervisor') {
-      // supervisor sees tasks they created
-      tasks = await Task.find({ createdBy: req.user._id })
-        .populate('assignedTo', 'name email')
-        .populate('createdBy', 'name email');
-
-    } else if (req.user.role === 'student') {
-      // student sees tasks assigned to them
-      tasks = await Task.find({ assignedTo: req.user._id })
-        .populate('createdBy', 'name email');
-
-    } else {
-      // admin sees all tasks
-      tasks = await Task.find()
-        .populate('assignedTo', 'name email')
-        .populate('createdBy', 'name email');
-    }
+    const tasks = await Task.find({ projectId: req.params.projectId }).sort({
+      order: 1,
+    }); // return in order
 
     res.json(tasks);
   } catch (error) {
@@ -49,16 +65,17 @@ export const getTasks = async (req, res, next) => {
   }
 };
 
-// GET /api/tasks/:id — get a single task by id
+// GET /api/tasks/:id — get single task
 export const getTaskById = async (req, res, next) => {
   try {
-    const task = await Task.findById(req.params.id)
-      .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email');
+    const task = await Task.findById(req.params.id).populate(
+      "projectId",
+      "title proposalPercentage",
+    );
 
     if (!task) {
       res.status(404);
-      return next(new Error('Task not found'));
+      return next(new Error("Task not found"));
     }
 
     res.json(task);
@@ -67,54 +84,77 @@ export const getTaskById = async (req, res, next) => {
   }
 };
 
-// PUT /api/tasks/:id — supervisor edits task, student can only update status
+// PUT /api/tasks/:id — supervisor updates a task
 export const updateTask = async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id);
 
     if (!task) {
       res.status(404);
-      return next(new Error('Task not found'));
+      return next(new Error("Task not found"));
     }
 
-    if (req.user.role === 'student') {
-      // students can only change the status
-      task.status = req.body.status ?? task.status;
-    } else {
-      // supervisors can update everything
-      task.title       = req.body.title       ?? task.title;
-      task.description = req.body.description ?? task.description;
-      task.priority    = req.body.priority    ?? task.priority;
-      task.deadline    = req.body.deadline    ?? task.deadline;
-      task.assignedTo  = req.body.assignedTo  ?? task.assignedTo;
-      task.status      = req.body.status      ?? task.status;
+    // verify ownership through the project
+    const project = await Project.findById(task.projectId);
+    if (project.supervisorId.toString() !== req.user._id.toString()) {
+      res.status(403);
+      return next(new Error("Not authorized to update this task"));
     }
 
-    const updated = await task.save();
-    res.json(updated);
+    task.title = req.body.title ?? task.title;
+    task.description = req.body.description ?? task.description;
+    task.deadline = req.body.deadline ?? task.deadline;
+    task.order = req.body.order ?? task.order;
+
+    await task.save();
+    res.json(task);
   } catch (error) {
     next(error);
   }
 };
 
-// DELETE /api/tasks/:id — only the supervisor who created it can delete
+// DELETE /api/tasks/:id — supervisor deletes a task
 export const deleteTask = async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id);
 
     if (!task) {
       res.status(404);
-      return next(new Error('Task not found'));
+      return next(new Error("Task not found"));
     }
 
-    // compare as strings because MongoDB ids are objects
-    if (task.createdBy.toString() !== req.user._id.toString()) {
+    const project = await Project.findById(task.projectId);
+    if (project.supervisorId.toString() !== req.user._id.toString()) {
       res.status(403);
-      return next(new Error('Not authorized to delete this task'));
+      return next(new Error("Not authorized to delete this task"));
     }
 
+    const projectId = task.projectId;
     await task.deleteOne();
-    res.json({ message: 'Task deleted successfully' });
+
+    // recalculate marks for remaining tasks after deletion
+    await recalculateTaskMarks(projectId);
+
+    res.json({ message: "Task deleted and marks recalculated" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PUT /api/tasks/:id/close — system closes submission link after 30 mins
+export const closeSubmission = async (req, res, next) => {
+  try {
+    const task = await Task.findById(req.params.id);
+
+    if (!task) {
+      res.status(404);
+      return next(new Error("Task not found"));
+    }
+
+    task.submissionOpen = false;
+    await task.save();
+
+    res.json({ message: "Submission closed for this task" });
   } catch (error) {
     next(error);
   }
