@@ -6,7 +6,6 @@ export const submitProposal = async (req, res, next) => {
   try {
     const { projectId, proposalData } = req.body;
 
-    // check project exists and is published
     const project = await Project.findById(projectId);
     if (!project) {
       res.status(404);
@@ -18,7 +17,6 @@ export const submitProposal = async (req, res, next) => {
       return next(new Error("Project is not published yet"));
     }
 
-    // block duplicate proposals — one per student per project
     const existing = await Proposal.findOne({
       projectId,
       studentId: req.user._id,
@@ -31,16 +29,22 @@ export const submitProposal = async (req, res, next) => {
       );
     }
 
-    // auto assign system mark based on proposal deadline
+    // check deadline and assign system mark with reason
     const now = new Date();
-    const systemMark = now <= new Date(project.proposalDeadline) ? 5 : 0;
+    const isOnTime = now <= new Date(project.proposalDeadline);
+    const systemMark = isOnTime ? 5 : 0;
+    const systemMarkReason = isOnTime
+      ? "Submitted before deadline"
+      : "Submitted after deadline — 5% bonus mark not awarded";
 
-    // if resubmitting after rejection update existing proposal
+    // resubmission after rejection
     if (existing && existing.status === "rejected") {
       existing.proposalData = proposalData;
       existing.status = "pending";
       existing.systemMark = systemMark;
+      existing.systemMarkReason = systemMarkReason;
       existing.supervisorMark = 0;
+      existing.totalMark = systemMark; // reset total, supervisor mark not given yet
       existing.feedback = "";
       existing.resubmissionCount += 1;
       existing.submittedAt = now;
@@ -48,12 +52,14 @@ export const submitProposal = async (req, res, next) => {
       return res.json(existing);
     }
 
-    // create new proposal
+    // new proposal
     const proposal = await Proposal.create({
       projectId,
       studentId: req.user._id,
       proposalData,
       systemMark,
+      systemMarkReason,
+      totalMark: systemMark, // only system mark for now, supervisor mark comes later
       submittedAt: now,
     });
 
@@ -77,7 +83,7 @@ export const getMyProposals = async (req, res, next) => {
   }
 };
 
-// GET /api/proposals/project/:projectId — supervisor sees all proposals for their project
+// GET /api/proposals/project/:projectId — supervisor sees all proposals
 export const getProjectProposals = async (req, res, next) => {
   try {
     const project = await Project.findById(req.params.projectId);
@@ -86,7 +92,6 @@ export const getProjectProposals = async (req, res, next) => {
       return next(new Error("Project not found"));
     }
 
-    // only the supervisor who owns the project can see proposals
     if (project.supervisorId.toString() !== req.user._id.toString()) {
       res.status(403);
       return next(new Error("Not authorized to view these proposals"));
@@ -102,7 +107,7 @@ export const getProjectProposals = async (req, res, next) => {
   }
 };
 
-// PUT /api/proposals/:id/review — supervisor accepts or rejects proposal
+// PUT /api/proposals/:id/review — supervisor accepts or rejects
 export const reviewProposal = async (req, res, next) => {
   try {
     const { status, supervisorMark, feedback } = req.body;
@@ -116,7 +121,6 @@ export const reviewProposal = async (req, res, next) => {
       return next(new Error("Proposal not found"));
     }
 
-    // verify supervisor owns the project
     if (
       proposal.projectId.supervisorId.toString() !== req.user._id.toString()
     ) {
@@ -124,15 +128,13 @@ export const reviewProposal = async (req, res, next) => {
       return next(new Error("Not authorized to review this proposal"));
     }
 
-    // status must be accepted or rejected
     if (!["accepted", "rejected"].includes(status)) {
       res.status(400);
       return next(new Error("Status must be accepted or rejected"));
     }
 
-    // get proposal percentage to validate supervisor mark
+    // max supervisor mark = proposalPercentage - 5 (system mark portion)
     const maxSupervisorMark = proposal.projectId.proposalPercentage - 5;
-
     if (supervisorMark > maxSupervisorMark) {
       res.status(400);
       return next(
@@ -143,6 +145,9 @@ export const reviewProposal = async (req, res, next) => {
     proposal.status = status;
     proposal.supervisorMark = supervisorMark ?? 0;
     proposal.feedback = feedback ?? "";
+
+    // calculate and store total mark
+    proposal.totalMark = proposal.systemMark + proposal.supervisorMark;
 
     await proposal.save();
     res.json(proposal);
