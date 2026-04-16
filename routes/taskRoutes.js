@@ -5,6 +5,7 @@ import {
   getTaskById,
   updateTask,
   deleteTask,
+  reorderTasks,
   closeSubmission,
 } from "../controllers/taskController.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -17,6 +18,7 @@ router.use(protect);
 router.get("/project/:projectId", getTasksByProject);
 router.get("/:id", getTaskById);
 router.post("/", allowRoles("supervisor"), createTask);
+router.put("/reorder", allowRoles("supervisor"), reorderTasks);
 router.put("/:id", allowRoles("supervisor"), updateTask);
 router.delete("/:id", allowRoles("supervisor"), deleteTask);
 router.put("/:id/close", allowRoles("supervisor"), closeSubmission);
