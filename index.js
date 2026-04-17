@@ -7,6 +7,8 @@ import authRoutes from './routes/authRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import proposalRoutes from './routes/proposalRoutes.js';
+import submissionRoutes from './routes/submissionRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 // Load .env variables before anything else
   dotenv.config();
@@ -31,6 +33,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks',    taskRoutes);
 app.use('/api/proposals', proposalRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/submissions',   submissionRoutes);
 
 // Health check route — confirms API is running
 app.get('/', (req, res) => {
